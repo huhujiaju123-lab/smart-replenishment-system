@@ -605,7 +605,7 @@ def main():
                 # 显示补货矩阵
                 st.subheader("📋 补货矩阵")
                 st.dataframe(
-                    matrix_df.style.background_gradient(cmap='YlOrRd', axis=None),
+                    matrix_df,
                     use_container_width=True,
                     height=400
                 )
