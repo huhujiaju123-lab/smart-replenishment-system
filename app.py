@@ -65,16 +65,23 @@ def clean_text(text: str) -> str:
 
 
 def extract_color(spec_text: str) -> str:
+    """
+    从规格文本中提取颜色
+    格式示例: "丁香紫；四季款" -> "丁香紫"
+             "羊绒棕；四季款" -> "羊绒棕"
+             "繁星黄；加暖款" -> "繁星黄"
+    """
     if not spec_text:
         return "未知颜色"
     text = clean_text(spec_text)
-    patterns = [r'^([^\s\-/]+)']
-    for pattern in patterns:
-        match = re.match(pattern, text)
-        if match:
-            color = match.group(1)
-            if not re.match(r'^[\d\.*]+$', color):
-                return color
+
+    # 按分号分割 (支持中文分号；和英文分号;)
+    parts = re.split(r'[；;]', text)
+    if parts:
+        color = parts[0].strip()
+        if color and not re.match(r'^[\d\.*]+$', color):
+            return color
+
     return text[:10] if len(text) > 10 else text
 
 
