@@ -67,16 +67,37 @@ def clean_text(text: str) -> str:
 def extract_color(spec_text: str) -> str:
     """
     从规格文本中提取颜色
-    注意: 括号内的内容(如加暖款/四季款)是颜色的一部分，代表光泽感
-    格式示例: "繁星黄(加暖款）" -> "繁星黄(加暖款)"
-             "米白（四季款）" -> "米白(四季款)"
+
+    支持多种格式:
+    1. 简单格式: "繁星黄(加暖款)" -> "繁星黄(加暖款)"
+    2. 分号分隔格式: "1.5米床单套件，搭配200*230被套；纽扣款；暮光褐；加暖款"
+       -> 颜色在最后两段: "暮光褐(加暖款)"
     """
     if not spec_text:
         return "未知颜色"
     text = clean_text(spec_text)
 
-    # 颜色包含括号内的款式信息，不要拆分
-    # 只需要清理和标准化文本
+    # 检查是否包含产品规格信息（说明是复杂格式）
+    if '套件' in text or '被套' in text or '床笠' in text or '床单' in text or '米床' in text:
+        # 复杂格式：按分号分割，取最后的颜色+款式
+        parts = [p.strip() for p in re.split(r'[；;]', text) if p.strip()]
+
+        if len(parts) >= 2:
+            # 最后一段通常是款式（加暖款/四季款）
+            last = parts[-1]
+            second_last = parts[-2]
+
+            # 判断最后一段是否是款式标识
+            if last in ['加暖款', '四季款', '纽扣款'] or '款' in last:
+                # 颜色 = 倒数第二段 + 最后一段
+                return f"{second_last}({last})"
+            else:
+                # 最后一段就是颜色
+                return last
+        elif len(parts) == 1:
+            return parts[0]
+
+    # 简单格式：直接返回清理后的文本
     color = text.strip()
 
     # 如果是纯数字则返回未知
