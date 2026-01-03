@@ -67,16 +67,17 @@ def clean_text(text: str) -> str:
 def extract_color(spec_text: str) -> str:
     """
     从规格文本中提取颜色
-    格式示例: "丁香紫；四季款" -> "丁香紫"
-             "羊绒棕；四季款" -> "羊绒棕"
-             "繁星黄；加暖款" -> "繁星黄"
+    格式示例: "米白（四季款）" -> "米白"
+             "丁香紫；四季款" -> "丁香紫"
+             "羊绒棕（加暖款）" -> "羊绒棕"
     """
     if not spec_text:
         return "未知颜色"
     text = clean_text(spec_text)
 
-    # 按分号分割 (支持中文分号；和英文分号;)
-    parts = re.split(r'[；;]', text)
+    # 按括号或分号分割 (支持中英文括号和分号)
+    # 格式: "颜色（款式）" 或 "颜色；款式"
+    parts = re.split(r'[（(；;]', text)
     if parts:
         color = parts[0].strip()
         if color and not re.match(r'^[\d\.*]+$', color):
@@ -104,39 +105,93 @@ def detect_product_type(product_name: str) -> str:
         return 'single'
 
 
-def parse_bed_size(spec_text: str, product_name: str) -> str:
-    text = clean_text(spec_text) + " " + clean_text(product_name)
-    if '2.2' in text or '220' in text:
+def parse_bed_size(product_name: str) -> str:
+    """
+    从商品名称解析床的尺寸
+    示例: "【床笠款】1.8米床套件" -> "180"
+          "【床笠款】2.0米床套件" -> "200"
+          "【床笠款】2.2米床套件" -> "220"
+    """
+    name = clean_text(product_name)
+
+    # 优先匹配 "X.X米床" 格式
+    if '2.2米' in name or '2.2m' in name.lower():
         return '220'
-    elif '2.0' in text or '200*200' in text or '200×200' in text:
+    elif '2.0米' in name or '2m' in name.lower() or '2米' in name:
         return '200'
-    elif '1.8' in text or '180' in text:
+    elif '1.8米' in name or '1.8m' in name.lower():
         return '180'
-    elif '1.5' in text or '150' in text:
+    elif '1.5米' in name or '1.5m' in name.lower():
         return '150'
+
+    # 备用: 匹配尺寸数字 (排除被套尺寸)
+    # 先移除被套相关描述再匹配
+    name_without_duvet = re.sub(r'被套.*?cm|搭配.*?被套', '', name)
+    if '220' in name_without_duvet:
+        return '220'
+    elif '200' in name_without_duvet:
+        return '200'
+    elif '180' in name_without_duvet:
+        return '180'
+    elif '150' in name_without_duvet:
+        return '150'
+
     return None
 
 
-def parse_duvet_size(spec_text: str) -> str:
-    text = clean_text(spec_text)
-    if '220' in text or '240' in text:
+def parse_duvet_size(product_name: str) -> str:
+    """
+    从商品名称解析被套尺寸
+    示例: "搭配220x240cm被套" -> "220*240"
+          "搭配200x230cm被套" -> "200*230"
+    """
+    name = clean_text(product_name)
+
+    # 匹配被套尺寸
+    if '220' in name and '240' in name:
+        return '220*240'
+    elif '220*240' in name or '220x240' in name:
+        return '220*240'
+    elif '200*230' in name or '200x230' in name:
+        return '200*230'
+    elif '240' in name:
         return '220*240'
     else:
         return '200*230'
 
 
+def is_fitted_sheet_style(product_name: str) -> bool:
+    """判断是否为床笠款"""
+    name = clean_text(product_name)
+    return '床笠款' in name or '床笠' in name
+
+
+def is_flat_sheet_style(product_name: str) -> bool:
+    """判断是否为床单款"""
+    name = clean_text(product_name)
+    return '床单款' in name or '床单' in name
+
+
 def explode_to_standard_skus(product_name: str, spec_text: str) -> List[Tuple[str, float]]:
+    """
+    将商品拆解为标准SKU
+    示例: "【床笠款】1.8米床套件，搭配220x240cm被套" + "米白（四季款）"
+    -> [('被套 220*240', 1), ('床笠 180*200', 1), ('枕套 (一对)', 1)]
+    """
     product_type = detect_product_type(product_name)
     name = clean_text(product_name)
-    spec = clean_text(spec_text)
-    combined = name + " " + spec
     result = []
 
+    # 从商品名称解析尺寸信息
+    bed_size = parse_bed_size(product_name)
+    duvet_size = parse_duvet_size(product_name)
+
     if product_type == 'five_piece':
-        duvet_size = parse_duvet_size(spec)
+        # 五件套: 被套 + 床笠/床单 + 枕套(一对) + 枕套(单只)
         result.append((f'被套 {duvet_size}', 1))
-        bed_size = parse_bed_size(spec, product_name)
-        if '床笠' in combined:
+
+        if is_fitted_sheet_style(product_name):
+            # 床笠款
             if bed_size == '220':
                 result.append(('床笠 220*200', 1))
             elif bed_size == '200':
@@ -146,20 +201,23 @@ def explode_to_standard_skus(product_name: str, spec_text: str) -> List[Tuple[st
             elif bed_size == '150':
                 result.append(('床笠 150*200', 1))
             else:
-                result.append(('床笠 180*200', 1))
-        elif '床单' in combined:
-            if bed_size in ['150']:
+                result.append(('床笠 180*200', 1))  # 默认1.8米
+        elif is_flat_sheet_style(product_name):
+            # 床单款
+            if bed_size == '150':
                 result.append(('床单 240*250', 1))
             else:
                 result.append(('床单 270*250', 1))
+
         result.append(('枕套 (一对)', 1))
         result.append(('枕套 (单只)', 1))
 
     elif product_type == 'four_piece':
-        duvet_size = parse_duvet_size(spec)
+        # 四件套/套件: 被套 + 床笠/床单 + 枕套(一对)
         result.append((f'被套 {duvet_size}', 1))
-        bed_size = parse_bed_size(spec, product_name)
-        if '床笠' in combined:
+
+        if is_fitted_sheet_style(product_name):
+            # 床笠款
             if bed_size == '220':
                 result.append(('床笠 220*200', 1))
             elif bed_size == '200':
@@ -169,34 +227,27 @@ def explode_to_standard_skus(product_name: str, spec_text: str) -> List[Tuple[st
             elif bed_size == '150':
                 result.append(('床笠 150*200', 1))
             else:
-                result.append(('床笠 180*200', 1))
-        elif '床单' in combined:
-            if bed_size in ['150']:
+                result.append(('床笠 180*200', 1))  # 默认1.8米
+        elif is_flat_sheet_style(product_name):
+            # 床单款
+            if bed_size == '150':
                 result.append(('床单 240*250', 1))
             else:
                 result.append(('床单 270*250', 1))
-        else:
-            if bed_size == '220':
-                result.append(('床笠 220*200', 1))
-            elif bed_size == '200':
-                result.append(('床笠 200*200', 1))
-            elif bed_size == '180':
-                result.append(('床笠 180*200', 1))
-            elif bed_size == '150':
-                result.append(('床笠 150*200', 1))
+
         result.append(('枕套 (一对)', 1))
 
     else:
+        # 单品
         if '枕套' in name:
-            if '一对' in combined or '对' in combined or '2' in combined:
+            if '一对' in name or '对' in name or '2只' in name:
                 result.append(('枕套 (一对)', 1))
             else:
                 result.append(('枕套 (单只)', 1))
         elif '被套' in name:
-            duvet_size = parse_duvet_size(spec)
             result.append((f'被套 {duvet_size}', 1))
         elif '床笠' in name:
-            bed_size = parse_bed_size(spec, product_name)
+            bed_size = parse_bed_size(product_name)
             if bed_size == '220':
                 result.append(('床笠 220*200', 1))
             elif bed_size == '200':
@@ -206,8 +257,7 @@ def explode_to_standard_skus(product_name: str, spec_text: str) -> List[Tuple[st
             elif bed_size == '150':
                 result.append(('床笠 150*200', 1))
         elif '床单' in name:
-            bed_size = parse_bed_size(spec, product_name)
-            if bed_size in ['150']:
+            if bed_size == '150':
                 result.append(('床单 240*250', 1))
             else:
                 result.append(('床单 270*250', 1))
