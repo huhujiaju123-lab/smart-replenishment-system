@@ -67,23 +67,23 @@ def clean_text(text: str) -> str:
 def extract_color(spec_text: str) -> str:
     """
     从规格文本中提取颜色
-    格式示例: "米白（四季款）" -> "米白"
-             "丁香紫；四季款" -> "丁香紫"
-             "羊绒棕（加暖款）" -> "羊绒棕"
+    注意: 括号内的内容(如加暖款/四季款)是颜色的一部分，代表光泽感
+    格式示例: "繁星黄(加暖款）" -> "繁星黄(加暖款)"
+             "米白（四季款）" -> "米白(四季款)"
     """
     if not spec_text:
         return "未知颜色"
     text = clean_text(spec_text)
 
-    # 按括号或分号分割 (支持中英文括号和分号)
-    # 格式: "颜色（款式）" 或 "颜色；款式"
-    parts = re.split(r'[（(；;]', text)
-    if parts:
-        color = parts[0].strip()
-        if color and not re.match(r'^[\d\.*]+$', color):
-            return color
+    # 颜色包含括号内的款式信息，不要拆分
+    # 只需要清理和标准化文本
+    color = text.strip()
 
-    return text[:10] if len(text) > 10 else text
+    # 如果是纯数字则返回未知
+    if re.match(r'^[\d\.*]+$', color):
+        return "未知颜色"
+
+    return color
 
 
 def should_filter_row(product_name: str) -> bool:
